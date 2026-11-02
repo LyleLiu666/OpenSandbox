@@ -6,9 +6,128 @@ name: Fork acceptance for issue 1019
 permissions:
   contents: read
 jobs:
-  gvisor-control:
-    name: Baseline / optional gVisor egress
+  two-node-control:
+    name: Baseline / two-node Fast Sandbox pool and verification
     runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      IDLE_PAUSE: '1'
+      IDLE_PAUSE_ROUNDS: '1'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: f26a716a11238b88d13a56242104e93e9d01c37d
+        persist-credentials: false
+    - name: Reserve runner space for local builds
+      if: runner.os == 'Linux'
+      shell: bash
+      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
+    - name: Check hosted KVM, cgroups and space before cluster creation
+      shell: bash
+      run: ls -l /dev/kvm; docker info -f "{{.CgroupVersion}}"; df -h /; nproc; free -h; test -c /dev/kvm
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
+    - name: Run integration tests (environment init)
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh up --auto-clean
+    - name: Run native template verify
+      timeout-minutes: 75
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-native
+    - name: Run overlaybd template verify
+      timeout-minutes: 90
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-overlaybd
+    - name: Run base SDK e2e
+      timeout-minutes: 60
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh sdk-e2e
+    - name: Run idle-pause SDK e2e
+      timeout-minutes: 45
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh idle-e2e
+    - name: Collect failure diagnostics
+      if: failure()
+      run: "work=\"/data/fast-sandbox-env\"; [ -d \"$work\" ] || work=\"$PWD/.fast-sandbox-env\"\nmkdir -p diagnostics\nsudo cp -a \"$work/logs\" \"$work/run.log\" diagnostics/ 2>/dev/null || true\nsudo chown -R \"$(id -u):$(id -g)\" diagnostics\
+        \ || true\nsudo -E env \"PATH=$PATH\" ./scripts/fast-sandbox-env/integration-env.sh status \\\n  > diagnostics/live-status.txt 2>&1 || true\n"
+    - name: Record scheduling and device blockers before teardown
+      if: failure()
+      run: 'sudo -E env "PATH=$PATH" kubectl get pods -A -o wide || true
+
+        sudo -E env "PATH=$PATH" kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -50 || true
+
+        grep -E ''Insufficient (cpu|memory)|FailedScheduling|DiskPressure|OutOf(cpu|memory)|FailedMount|unbound immediate PersistentVolumeClaims|ImagePullBackOff|CrashLoopBackOff|FailedCreatePodSandBox'' diagnostics/live-status.txt | tail -45
+        || true
+
+        df -h /; free -h; nproc
+
+        '
+    - name: Teardown
+      if: always()
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh down
+  one-node-candidate:
+    name: Candidate / supported single-node Fast Sandbox profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      IDLE_PAUSE: '1'
+      IDLE_PAUSE_ROUNDS: '1'
+      KIND_SINGLE: '1'
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+        persist-credentials: false
+    - name: Reserve runner space for local builds
+      if: runner.os == 'Linux'
+      shell: bash
+      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
+    - name: Check hosted KVM, cgroups and space before cluster creation
+      shell: bash
+      run: ls -l /dev/kvm; docker info -f "{{.CgroupVersion}}"; df -h /; nproc; free -h; test -c /dev/kvm
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.25'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v7
+    - name: Run integration tests (environment init)
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh up --auto-clean
+    - name: Run native template verify
+      timeout-minutes: 75
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-native
+    - name: Run overlaybd template verify
+      timeout-minutes: 90
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-overlaybd
+    - name: Run base SDK e2e
+      timeout-minutes: 60
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh sdk-e2e
+    - name: Run idle-pause SDK e2e
+      timeout-minutes: 45
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh idle-e2e
+    - name: Collect failure diagnostics
+      if: failure()
+      run: "work=\"/data/fast-sandbox-env\"; [ -d \"$work\" ] || work=\"$PWD/.fast-sandbox-env\"\nmkdir -p diagnostics\nsudo cp -a \"$work/logs\" \"$work/run.log\" diagnostics/ 2>/dev/null || true\nsudo chown -R \"$(id -u):$(id -g)\" diagnostics\
+        \ || true\nsudo -E env \"PATH=$PATH\" ./scripts/fast-sandbox-env/integration-env.sh status \\\n  > diagnostics/live-status.txt 2>&1 || true\n"
+    - name: Record scheduling and device blockers before teardown
+      if: failure()
+      run: 'sudo -E env "PATH=$PATH" kubectl get pods -A -o wide || true
+
+        sudo -E env "PATH=$PATH" kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -50 || true
+
+        grep -E ''Insufficient (cpu|memory)|FailedScheduling|DiskPressure|OutOf(cpu|memory)|FailedMount|unbound immediate PersistentVolumeClaims|ImagePullBackOff|CrashLoopBackOff|FailedCreatePodSandBox'' diagnostics/live-status.txt | tail -45
+        || true
+
+        df -h /; free -h; nproc
+
+        '
+    - name: Teardown
+      if: always()
+      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh down
+  windows-control:
+    name: Baseline / native Windows node-agent tests
+    runs-on: windows-latest
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v6
@@ -23,34 +142,5 @@ jobs:
       with:
         go-version: '1.25'
         cache: false
-    - env:
-        EGRESS_IMG: opensandbox/egress:fork-1019
-        KIND_CLUSTER: gvisor-test
-        CONTROLLER_IMG: controller:dev
-        TASK_EXECUTOR_IMG: task-executor:dev
-      shell: bash
-      run: 'set -eo pipefail
-
-        docker build -t "$EGRESS_IMG" -f components/egress/Dockerfile .
-
-        cd kubernetes
-
-        make setup-gvisor KIND=kind
-
-        kind load docker-image --name "$KIND_CLUSTER" "$EGRESS_IMG"
-
-        make install-gvisor-deps KIND=kind
-
-        kubectl apply -f test/e2e_runtime/gvisor/testdata/runtimeclass.yaml
-
-        (while sleep 8; do kubectl get pod -A -o json | jq -c ''.items[]|select(.metadata.name|startswith("test-gvisor-egress-"))|{phase:.status.phase,containers:[.status.containerStatuses[]?|{name,state}]}''; done) &
-
-        observer=$!
-
-        trap ''kill "$observer" || true'' EXIT
-
-        go test ./test/e2e_runtime/gvisor -count=1 -v -ginkgo.v -ginkgo.focus=''should fail to start the egress sidecar'' | tee "$RUNNER_TEMP/gvisor-egress.log"
-
-        grep -Eq ''1 Passed'' "$RUNNER_TEMP/gvisor-egress.log"
-
-        '
+    - working-directory: components/nodeagent
+      run: go test -count=1 -cover ./...
