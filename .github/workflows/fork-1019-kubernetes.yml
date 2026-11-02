@@ -1,0 +1,30 @@
+name: Fork validation for issue 1019
+on:
+  push:
+    branches: [codex/ci-1019-kubernetes]
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    if: github.repository == 'LyleLiu666/OpenSandbox'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [core, pause-resume]
+        version: ["1.22.4", "1.28.6", "1.34.2"]
+    name: ${{ matrix.suite }} on Kubernetes v${{ matrix.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache-dependency-path: kubernetes/go.sum
+      - working-directory: kubernetes
+        run: make test-e2e-${{ matrix.suite }} KIND_K8S_VERSION=v${{ matrix.version }}
