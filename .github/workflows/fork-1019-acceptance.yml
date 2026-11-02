@@ -6,141 +6,67 @@ name: Fork acceptance for issue 1019
 permissions:
   contents: read
 jobs:
-  two-node-control:
-    name: Baseline / two-node Fast Sandbox pool and verification
+  verify-evidence:
+    name: Check test evidence and produce approval record
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-    env:
-      IDLE_PAUSE: '1'
-      IDLE_PAUSE_ROUNDS: '1'
+    timeout-minutes: 6
+    permissions:
+      contents: read
+      actions: read
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
+    - name: Verify immutable job results and candidate revision
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: "python - <<'VERIFY'\nimport json, os, urllib.request, pathlib\nroot=\"https://api.github.com/repos/LyleLiu666/OpenSandbox/\"\ndef get(path):\n    request=urllib.request.Request(root+path,headers={\"Authorization\":\"Bearer \"+os.environ[\"\
+        GH_TOKEN\"], \"Accept\":\"application/vnd.github+json\"})\n    with urllib.request.urlopen(request,timeout=45) as response:\n        return json.load(response)\nexpected={\"41439934932\":{\"125258950704\":\"success\",\"125258951102\"\
+        :\"failure\",\"125258951128\":\"success\",\"125258951175\":\"success\",\"125258951182\":\"success\",\"125258951326\":\"success\"},\"41443600318\":{\"125271186597\":\"success\",\"125271187554\":\"success\"},\"41452617291\":{\"125301285249\"\
+        :\"success\",\"125301285331\":\"success\",\"125301285367\":\"success\",\"125301285422\":\"success\",\"125301285423\":\"failure\",\"125301285460\":\"success\",\"125301285490\":\"success\",\"125301285499\":\"failure\",\"125301285508\":\"\
+        success\",\"125301285528\":\"success\",\"125301285535\":\"failure\",\"125301285576\":\"success\",\"125301285584\":\"success\",\"125301285591\":\"failure\",\"125301285628\":\"success\",\"125301285634\":\"success\",\"125301285655\":\"success\"\
+        ,\"125301285657\":\"success\",\"125301285678\":\"failure\",\"125301285688\":\"success\",\"125301285697\":\"failure\",\"125301285701\":\"success\",\"125301285705\":\"success\",\"125301285769\":\"success\",\"125301285770\":\"success\",\"\
+        125301285792\":\"success\",\"125301285816\":\"success\",\"125301285851\":\"failure\",\"125301285863\":\"failure\",\"125301285903\":\"failure\",\"125301285928\":\"success\",\"125301285944\":\"success\",\"125301286029\":\"success\",\"125301286115\"\
+        :\"success\",\"125301286369\":\"success\"},\"41453436014\":{\"125304071498\":\"success\",\"125304071835\":\"failure\",\"125304071937\":\"success\",\"125304071952\":\"failure\",\"125304071988\":\"success\",\"125304072093\":\"success\"\
+        },\"41454265321\":{\"125306835130\":\"success\",\"125306835412\":\"failure\",\"125306835578\":\"success\",\"125306835708\":\"success\"},\"41454373234\":{\"125307196617\":\"success\"},\"41455081061\":{\"125309608171\":\"failure\",\"125309608753\"\
+        :\"failure\"},\"41455957899\":{\"125312560867\":\"failure\",\"125312561274\":\"success\",\"125312561335\":\"failure\"},\"41456743312\":{\"125315228079\":\"failure\",\"125315228287\":\"success\",\"125315228480\":\"success\"},\"41456929308\"\
+        :{\"125315863506\":\"failure\",\"125315864038\":\"failure\"},\"41457063104\":{\"125316315267\":\"failure\"},\"41457828548\":{\"125318970456\":\"success\"},\"41458700427\":{\"125321895575\":\"failure\"},\"41459700721\":{\"125325291300\"\
+        :\"failure\",\"125325291596\":\"failure\",\"125325291630\":\"failure\"}}\nreport=\"# OpenSandbox #1019 删除修复 · 最终验收记录\\n\\n**建议批准候选补丁。全仓状态为有已知失败，Fast Sandbox 全栈仍待验。** 有效范围是删除已入库、分片启动参数不合法的 BatchSandbox。没有改变创建时的准入规则。\\n\\n- 候选分支为 `codex/fix-1019-task-cleanup`，提交\
+        \ `bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4`。对照为官方 `main` 的 `f26a716a11238b88d13a56242104e93e9d01c37d`。产品差异限于两处 Go 文件，生产代码增加 5 行，回归测试增加 35 行。[候选差异](https://github.com/LyleLiu666/OpenSandbox/compare/f26a716a11238b88d13a56242104e93e9d01c37d...bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4)\
+        \ · [原始 issue](https://github.com/opensandbox-group/OpenSandbox/issues/1019)\\n- 修前删除 `args: [3600]` 的对象会因重新解码启动参数而中断。修后根据已知任务名恢复并停止任务，确认前保留 Pod 和清理标记，确认后两者分别清理，Pod 和沙箱均返回 404。正常 `args: [\\\"3600\\\"]` 在修前修后均通过。已覆盖控制器重启与复用缓存两种路径，在真实 API\
+        \ Server 1.33、etcd 和本地 HTTP 执行器替身上做过对照，针对性回归重复 10 轮通过。\\n- 已复用首轮本地通过的 Kubernetes `make test`、格式检查、lint（0 issues）、许可头、server、PostgreSQL 专项（22 项）、SDK/CLI/console、运行时组件和文档构建。首轮本地逐套命令与修前修后证据已单独交付。此次使用公开个人 fork 的 GitHub 标准托管 Ubuntu/Windows\
+        \ runner，并将验证工作流与候选补丁分支分开。镜像构建、测试用注册表和 Maven 本地仓库均位于临时 runner。\\n\\n## 直接受改动影响的 Kubernetes 验收\\n\\n工作目录 `kubernetes`，Ubuntu 24.04 amd64，Go 1.25.14。执行 `make test-e2e-core KIND_K8S_VERSION=v<版本>` 和 `make test-e2e-pause-resume KIND_K8S_VERSION=v<版本>`。三个版本的\
+        \ Core 各通过 44 项。单独启用的主机目录复制用例另有 1/1 实测。成功的 PauseResume 作业各通过 7 项。\\n\\n| Kubernetes | Core | PauseResume |\\n|---|---|---|\\n| v1.22.4 | [通过](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258951175) | [通过](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258951326)\
+        \ |\\n| v1.28.6 | [通过](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258950704) | [首轮等待 PauseFailed=True 超时 900 秒](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258951102)，[候选复跑\
+        \ 7/7](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41443600318/job/125271186597)，[基线 7/7](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41443600318/job/125271187554)。首轮原因未确定 |\\n| v1.34.2 | [通过](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258951128)\
+        \ | [通过](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41439934932/job/125258951182) |\\n\\n## 全仓补验结论\\n\\n| 范围 | 实测、归因与审批边界 |\\n|---|---|\\n| egress | macOS 失败的三组 Go 测试在 Ubuntu 全过。Linux Go、特权 nft/iptables、MITM 和 H2 按仓库步骤验证。验证入口一度把三个\
+        \ Go 环境变量的字面值 `off` 转成了布尔值，恢复原值后仅补跑剩余 H2 步骤并通过。[三组回归](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285249) · [原作业各步骤](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285535)\
+        \ · [H2 补验](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41454373234) |\\n| Docker 删除/TTL | 使用从对应 checkout 构建的 egress 镜像及原测试文件。默认 Docker 端口代理模式下两边都是 13 个 fixture 错误，均发生在收集器 HTTP 就绪探测阶段。保留原断言，仅关闭临时 daemon 的 `userland-proxy`，两边均为\
+        \ 13/13。此结果适用于内核端口转发，默认代理模式的删除断言没有取得结果。[候选默认](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285851) · [基线默认](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41454265321/job/125306835412) · [候选 13/13](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41454265321/job/125306835130)\
+        \ · [基线 13/13](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41454265321/job/125306835578) |\\n| server、execd、node-agent | server Ubuntu 2708 通过/32 跳过，Windows 2707 通过/33 跳过，另有 Docker、PostgreSQL 专项。host/bridge 两组 smoke 均通过，首次验证入口误将\
+        \ `YES` 转成布尔值，已按仓库原值重跑。Linux/Windows execd smoke，Linux OOM、BPF、bwrap 和 init/hardening，以及 node-agent 的正式构建、跨编译、Kind 和日志收集作业均通过。[组件作业](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291) · [Docker smoke 补验](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41453436014)\
+        \ |\\n| 集群与虚拟化 | 另外四个 nightly 版本（v1.24.4、v1.26.4、v1.30.4、v1.32.2）的 Core 通过。Kind direct 在 Go 代理下载中断后重试通过，两种 ingress 路由、Pool、task-executor（16/16）、QEMU/KVM VMState 均通过。可选主机目录复制首轮被安全策略跳过，设置测试所需的 privileged 策略并克服一次依赖下载中断后，实际执行结果 1/1。[主机复制\
+        \ 1/1](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41457828548/job/125318970456) · [Kind direct](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41454265321/job/125306835708) · [task-executor](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41453436014/job/125304071988)\
+        \ · [QEMU](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285528) |\\n| 真实 SDK E2E | Go 全套通过。启用可选代码解释器后，C# 候选 83/85 通过，两项预期退出码为空、实际为 0，基线有相同失败。Java 候选的两项失败均位于相同语义的退出码断言，候选单测复跑与完整基线均重现。两种语言的完整基线还各有一项额外失败。它们运行在\
+        \ Docker 后端，不经过本补丁的 Kubernetes 删除分支。[Go](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301286369) · [C# 候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285863) · [C# 基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41455081061/job/125309608171)\
+        \ · [Java 候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285903) · [Java 基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41455957899/job/125312560867) · [Java 定向复跑](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41456743312/job/125315228079)\
+        \ |\\n| Python、JavaScript 解释器 E2E | Python 候选完整运行 247 通过、2 失败、28 跳过；两项定向复跑 2/2。Python 基线 248 通过、1 失败、28 跳过，超时发生于另一项。JavaScript 候选 131/132 通过，上下文隔离用例超时 900 秒；该项定向复跑 1/1，完整基线通过。首次失败未稳定复现。[Python 候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285697)\
+        \ · [Python 基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41455957899/job/125312561335) · [Python 复跑](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41455957899/job/125312561274) · [JS 候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41452617291/job/125301285423)\
+        \ · [JS 基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41456743312/job/125315228287) · [JS 复跑](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41456743312/job/125315228480) |\\n| Helm | 打包、校验、渲染通过。发布窗口的安装 smoke 在两边均失败：预创建的\
+        \ `opensandbox-system` 缺少 Helm 接管所需的标签和注解，阻塞安装，未进入服务部署断言。需单独协调安装脚本和 Chart 的命名空间归属。[候选安装](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41453436014/job/125304071835) · [上游基线安装](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41455081061/job/125309608753)\
+        \ |\\n| gVisor、Windows node-agent | gVisor 默认套件通过 3 项。额外构建并注入真实 egress 镜像后，两边的可选用例均等待 sidecar 退出超时；基线现场显示容器仍为 Running。未验证其流量策略是否正确。另加的原生 Windows node-agent 运行在两边都因文件路径/日志指纹平台限制失败并超时；正式 CI 中的 Windows 交叉编译验证已通过。若列为支持环境，须单独核对运行时契约。[gVisor\
+        \ 候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41457063104/job/125316315267) · [gVisor 基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41458700427/job/125321895575) · [Windows 原生候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41456929308/job/125315863506)\
+        \ · [Windows 原生基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41459700721/job/125325291596) |\\n| Fast Sandbox 全栈 | 标准 runner 支持 KVM，已实际完成 QEMU 测试。Fast Sandbox 双节点原配置在候选和基线上均卡在 Fastlet Ready；基线 Kubernetes 调度事件为 `Insufficient\
+        \ cpu`。受支持的单节点候选改为只需 1 个 Fastlet，仍报同一资源不足。native、OverlayBD、基础 SDK、idle-pause 四阶段均未执行。补验需要已有的、可调度 Fastlet 的 KVM/Linux 环境，按原工作流运行 `up --auto-clean`、`verify-native`、`verify-overlaybd`、`sdk-e2e`、`idle-e2e`。阻塞在独立 Fast Sandbox 后端资源池初始化，未进入\
+        \ BatchSandbox 删除逻辑。[双节点候选](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41453436014/job/125304071952) · [双节点基线](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41459700721/job/125325291300) · [单节点容量对照](https://github.com/LyleLiu666/OpenSandbox/actions/runs/41459700721/job/125325291630)\
+        \ |\\n\\n**审批范围**：在已实测的 BatchSandbox 删除行为和 Kubernetes 版本范围内接受候选补丁。全仓保留上述跨环境失败与 Fast Sandbox 未执行项。没有向上游开 PR、修改默认分支或发布版本。\"\ntext=[report,\"\",\"## 作业索引\",\"\",\"下表区分首轮、环境补验及上游基线。一次作业失败不会被另一次通过覆盖。每个作业链接均保留运行环境、检出信息、命令及输出。\",\"\"]\ncount=0\n\
+        for run_id, conclusions in expected.items():\n    run=get(\"actions/runs/\"+run_id)\n    assert run[\"status\"]==\"completed\" and run[\"event\"]==\"push\",run_id\n    jobs=get(\"actions/runs/\"+run_id+\"/jobs?per_page=100\")[\"jobs\"\
+        ]\n    assert {str(job[\"id\"]):job[\"conclusion\"] for job in jobs}==conclusions,run_id\n    assert all(job[\"status\"]==\"completed\" for job in jobs)\n    count+=len(jobs)\n    wf=\"https://github.com/LyleLiu666/OpenSandbox/blob/\"\
+        +run[\"head_sha\"]+\"/\"+run[\"path\"]\n    text+=[\"### 运行 \"+run_id,\"\",\"[本轮验证命令](\"+wf+\") · [运行总览](\"+run[\"html_url\"]+\")\",\"\",\"| 作业 | runner | 结果 |\",\"|---|---|---|\"]\n    for job in jobs:\n        text.append(\"| [\"+job[\"\
+        name\"].replace(\"|\",\"/\")+\"](\"+job[\"html_url\"]+\") | \"+\", \".join(job[\"labels\"])+\" | \"+job[\"conclusion\"]+\" |\")\n    text.append(\"\")\nassert count==70 and len(expected)==14\nassert get(\"git/ref/heads/codex/fix-1019-task-cleanup\"\
+        )[\"object\"][\"sha\"]==\"bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4\"\nassert get(\"git/ref/heads/main\")[\"object\"][\"sha\"]==\"f26a716a11238b88d13a56242104e93e9d01c37d\"\ndoc=\"\\n\".join(text)+\"\\n\"\npathlib.Path(\"OpenSandbox-1019-acceptance.md\"\
+        ).write_text(doc)\nwith open(os.environ[\"GITHUB_STEP_SUMMARY\"],\"a\") as f:\n    f.write(doc)\nprint(\"Verified 14 immutable workflow run IDs, 70 completed job results, candidate head and fork default branch.\")\nVERIFY"
+    - name: Attach Markdown approval record
+      uses: actions/upload-artifact@v4
       with:
-        ref: f26a716a11238b88d13a56242104e93e9d01c37d
-        persist-credentials: false
-    - name: Reserve runner space for local builds
-      if: runner.os == 'Linux'
-      shell: bash
-      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - name: Check hosted KVM, cgroups and space before cluster creation
-      shell: bash
-      run: ls -l /dev/kvm; docker info -f "{{.CgroupVersion}}"; df -h /; nproc; free -h; test -c /dev/kvm
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.25'
-    - name: Set up uv
-      uses: astral-sh/setup-uv@v7
-    - name: Run integration tests (environment init)
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh up --auto-clean
-    - name: Run native template verify
-      timeout-minutes: 75
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-native
-    - name: Run overlaybd template verify
-      timeout-minutes: 90
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-overlaybd
-    - name: Run base SDK e2e
-      timeout-minutes: 60
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh sdk-e2e
-    - name: Run idle-pause SDK e2e
-      timeout-minutes: 45
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh idle-e2e
-    - name: Collect failure diagnostics
-      if: failure()
-      run: "work=\"/data/fast-sandbox-env\"; [ -d \"$work\" ] || work=\"$PWD/.fast-sandbox-env\"\nmkdir -p diagnostics\nsudo cp -a \"$work/logs\" \"$work/run.log\" diagnostics/ 2>/dev/null || true\nsudo chown -R \"$(id -u):$(id -g)\" diagnostics\
-        \ || true\nsudo -E env \"PATH=$PATH\" ./scripts/fast-sandbox-env/integration-env.sh status \\\n  > diagnostics/live-status.txt 2>&1 || true\n"
-    - name: Record scheduling and device blockers before teardown
-      if: failure()
-      run: 'sudo -E env "PATH=$PATH" kubectl get pods -A -o wide || true
-
-        sudo -E env "PATH=$PATH" kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -50 || true
-
-        grep -E ''Insufficient (cpu|memory)|FailedScheduling|DiskPressure|OutOf(cpu|memory)|FailedMount|unbound immediate PersistentVolumeClaims|ImagePullBackOff|CrashLoopBackOff|FailedCreatePodSandBox'' diagnostics/live-status.txt | tail -45
-        || true
-
-        df -h /; free -h; nproc
-
-        '
-    - name: Teardown
-      if: always()
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh down
-  one-node-candidate:
-    name: Candidate / supported single-node Fast Sandbox profile
-    runs-on: ubuntu-latest
-    timeout-minutes: 240
-    env:
-      IDLE_PAUSE: '1'
-      IDLE_PAUSE_ROUNDS: '1'
-      KIND_SINGLE: '1'
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
-        persist-credentials: false
-    - name: Reserve runner space for local builds
-      if: runner.os == 'Linux'
-      shell: bash
-      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - name: Check hosted KVM, cgroups and space before cluster creation
-      shell: bash
-      run: ls -l /dev/kvm; docker info -f "{{.CgroupVersion}}"; df -h /; nproc; free -h; test -c /dev/kvm
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.25'
-    - name: Set up uv
-      uses: astral-sh/setup-uv@v7
-    - name: Run integration tests (environment init)
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh up --auto-clean
-    - name: Run native template verify
-      timeout-minutes: 75
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-native
-    - name: Run overlaybd template verify
-      timeout-minutes: 90
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-overlaybd
-    - name: Run base SDK e2e
-      timeout-minutes: 60
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh sdk-e2e
-    - name: Run idle-pause SDK e2e
-      timeout-minutes: 45
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh idle-e2e
-    - name: Collect failure diagnostics
-      if: failure()
-      run: "work=\"/data/fast-sandbox-env\"; [ -d \"$work\" ] || work=\"$PWD/.fast-sandbox-env\"\nmkdir -p diagnostics\nsudo cp -a \"$work/logs\" \"$work/run.log\" diagnostics/ 2>/dev/null || true\nsudo chown -R \"$(id -u):$(id -g)\" diagnostics\
-        \ || true\nsudo -E env \"PATH=$PATH\" ./scripts/fast-sandbox-env/integration-env.sh status \\\n  > diagnostics/live-status.txt 2>&1 || true\n"
-    - name: Record scheduling and device blockers before teardown
-      if: failure()
-      run: 'sudo -E env "PATH=$PATH" kubectl get pods -A -o wide || true
-
-        sudo -E env "PATH=$PATH" kubectl get events -A --field-selector type=Warning --sort-by=.lastTimestamp | tail -50 || true
-
-        grep -E ''Insufficient (cpu|memory)|FailedScheduling|DiskPressure|OutOf(cpu|memory)|FailedMount|unbound immediate PersistentVolumeClaims|ImagePullBackOff|CrashLoopBackOff|FailedCreatePodSandBox'' diagnostics/live-status.txt | tail -45
-        || true
-
-        df -h /; free -h; nproc
-
-        '
-    - name: Teardown
-      if: always()
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh down
-  windows-control:
-    name: Baseline / native Windows node-agent tests
-    runs-on: windows-latest
-    timeout-minutes: 90
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        ref: f26a716a11238b88d13a56242104e93e9d01c37d
-        persist-credentials: false
-    - name: Reserve runner space for local builds
-      if: runner.os == 'Linux'
-      shell: bash
-      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - uses: actions/setup-go@v6
-      with:
-        go-version: '1.25'
-        cache: false
-    - working-directory: components/nodeagent
-      run: go test -count=1 -cover ./...
+        name: OpenSandbox-1019-acceptance
+        path: OpenSandbox-1019-acceptance.md
+        retention-days: 30
+        if-no-files-found: error
