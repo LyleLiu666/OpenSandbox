@@ -6,8 +6,8 @@ name: Fork acceptance for issue 1019
 permissions:
   contents: read
 jobs:
-  gvisor-egress:
-    name: gVisor / optional egress incompatibility spec
+  host-copy:
+    name: Host-copy / retry dependency prefetch
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -23,28 +23,17 @@ jobs:
       with:
         go-version: '1.25'
         cache: false
-    - env:
-        EGRESS_IMG: opensandbox/egress:fork-1019
-        KIND_CLUSTER: gvisor-test
-        CONTROLLER_IMG: controller:dev
-        TASK_EXECUTOR_IMG: task-executor:dev
+    - name: Fetch locked modules before Kind (retry transport errors)
+      working-directory: kubernetes
+      env:
+        GODEBUG: http2client=0
+      run: for delay in 0 3 10; do sleep "$delay"; if go mod download; then exit 0; fi; done; exit 1
+    - working-directory: kubernetes
+      env:
+        OPEN_SANDBOX_E2E_HOST_COPY: 'true'
+        KIND_CLUSTER: osb-host-copy
+        E2E_POD_SECURITY_ENFORCE: privileged
+      run: "set -eo pipefail\nmkdir -p /tmp/opensandbox-host-copy\ncat <<'CONFIG' | kind create cluster --name \"$KIND_CLUSTER\" --image kindest/node:v1.28.6 --config -\nkind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\n\
+        \  extraMounts:\n  - hostPath: /tmp/opensandbox-host-copy\n    containerPath: /mnt/opensandbox-host-copy\nCONFIG\nmake test-e2e-core KIND=kind GINKGO_ARGS='-ginkgo.focus=should.copy.files.between.a.host-mounted.directory' | tee \"$RUNNER_TEMP/host-copy.log\"\
+        \ngrep -Eq \"1 Passed\" \"$RUNNER_TEMP/host-copy.log\""
       shell: bash
-      run: 'set -eo pipefail
-
-        docker build -t "$EGRESS_IMG" -f components/egress/Dockerfile .
-
-        cd kubernetes
-
-        make setup-gvisor KIND=kind
-
-        kind load docker-image --name "$KIND_CLUSTER" "$EGRESS_IMG"
-
-        make install-gvisor-deps KIND=kind
-
-        kubectl apply -f test/e2e_runtime/gvisor/testdata/runtimeclass.yaml
-
-        go test ./test/e2e_runtime/gvisor -count=1 -v -ginkgo.v -ginkgo.focus=''should fail to start the egress sidecar'' | tee "$RUNNER_TEMP/gvisor-egress.log"
-
-        grep -Eq ''1 Passed'' "$RUNNER_TEMP/gvisor-egress.log"
-
-        '
