@@ -6,211 +6,108 @@ name: Fork acceptance for issue 1019
 permissions:
   contents: read
 jobs:
-  fast-sandbox:
-    name: Fast Sandbox / hosted KVM full stack
+  docker-delete-baseline:
+    name: Docker delete / TTL control (default daemon)
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-    env:
-      IDLE_PAUSE: '1'
-      IDLE_PAUSE_ROUNDS: '1'
+    timeout-minutes: 90
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
+    - uses: actions/checkout@v6
       with:
-        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+        ref: f26a716a11238b88d13a56242104e93e9d01c37d
         persist-credentials: false
     - name: Reserve runner space for local builds
       if: runner.os == 'Linux'
       shell: bash
       run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - name: Check hosted KVM, cgroups and space before cluster creation
-      shell: bash
-      run: ls -l /dev/kvm; docker info -f "{{.CgroupVersion}}"; df -h /; nproc; free -h; test -c /dev/kvm
-    - name: Set up Go
-      uses: actions/setup-go@v6
-      with:
-        go-version: '1.25'
-    - name: Set up uv
-      uses: astral-sh/setup-uv@v7
-    - name: Run integration tests (environment init)
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh up --auto-clean
-    - name: Run native template verify
-      timeout-minutes: 75
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-native
-    - name: Run overlaybd template verify
-      timeout-minutes: 90
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh verify-overlaybd
-    - name: Run base SDK e2e
-      timeout-minutes: 60
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh sdk-e2e
-    - name: Run idle-pause SDK e2e
-      timeout-minutes: 45
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh idle-e2e
-    - name: Collect failure diagnostics
-      if: failure()
-      run: "work=\"/data/fast-sandbox-env\"; [ -d \"$work\" ] || work=\"$PWD/.fast-sandbox-env\"\nmkdir -p diagnostics\nsudo cp -a \"$work/logs\" \"$work/run.log\" diagnostics/ 2>/dev/null || true\nsudo chown -R \"$(id -u):$(id -g)\" diagnostics\
-        \ || true\nsudo -E env \"PATH=$PATH\" ./scripts/fast-sandbox-env/integration-env.sh status \\\n  > diagnostics/live-status.txt 2>&1 || true\n"
-    - name: Teardown
-      if: always()
-      run: sudo -E env "PATH=$PATH" ./scripts/fast-sandbox-env/integration-env.sh down
-  server-docker-smoke:
-    strategy:
-      matrix:
-        network:
-        - host
-        - bridge
-      fail-fast: false
-    runs-on: ubuntu-latest
-    env:
-      OPENSANDBOX_INSECURE_SERVER: 'YES'
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v6
-      with:
-        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
-        persist-credentials: false
-    - name: Reserve runner space for local builds
-      if: runner.os == 'Linux'
-      shell: bash
-      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Install uv
-      run: 'pip install uv
-
-        '
-    - name: Set up Docker
-      run: 'docker --version
-
-        '
-    - name: Run smoke test
-      run: 'set -e
-
-        cd server
-
-        uv sync --all-groups
-
-
-        # Create config file
-
-        cat <<EOF > ~/.sandbox.toml
-
-        [server]
-
-        host = "127.0.0.1"
-
-        port = 32888
-
-        api_key = ""
-
-        [log]
-
-        level = "INFO"
-
-        [runtime]
-
-        type = "docker"
-
-        execd_image = "opensandbox/execd:latest"
-
-        [egress]
-
-        image = "opensandbox/egress:latest"
-
-        [docker]
-
-        network_mode = "${{ matrix.network }}"
-
-        [storage]
-
-        allowed_host_paths = ["/tmp/opensandbox-e2e"]
-
-        EOF
-
-
-        # Start server in background
-
-        uv run python -m opensandbox_server.main > app.log 2>&1 &
-
-
-        # Wait for server to start
-
-        sleep 10
-
-
-        # Run smoke test
-
-        chmod +x tests/smoke.sh
-
-        ./tests/smoke.sh
-
-        '
-    - name: Show logs
-      if: always()
-      run: 'cat server/app.log
-
-        '
-    timeout-minutes: 90
-  kind-host-copy:
-    name: Optional host-mounted lifecycle copy / single spec
+    - uses: astral-sh/setup-uv@v7
+    - run: docker build -f components/egress/Dockerfile -t opensandbox/egress:local .
+    - working-directory: server
+      env:
+        OPENSANDBOX_TEST_DOCKER: '1'
+        OPENSANDBOX_TEST_EGRESS_IMAGE: opensandbox/egress:local
+        UV_PYTHON: '3.10'
+      run: uv sync --all-groups --frozen && uv run pytest -v -ra tests/test_docker_delete_integration.py
+  docker-kernel-forwarding:
+    name: Docker delete / TTL, kernel port forwarding (${{ matrix.revision }})
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
     - uses: actions/checkout@v6
       with:
-        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+        ref: ${{ matrix.sha }}
         persist-credentials: false
     - name: Reserve runner space for local builds
       if: runner.os == 'Linux'
       shell: bash
       run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - &id001
-      uses: actions/setup-go@v6
+    - name: Use kernel port forwarding for loopback readiness
+      run: 'sudo python3 - <<''CONFIG''
+
+        import json
+
+        from pathlib import Path
+
+        p = Path(''/etc/docker/daemon.json'')
+
+        config = json.loads(p.read_text()) if p.exists() else {}
+
+        config[''userland-proxy''] = False
+
+        p.write_text(json.dumps(config))
+
+        CONFIG
+
+        sudo systemctl restart docker
+
+        docker info --format ''{{.ServerVersion}}''
+
+        '
+    - uses: actions/setup-python@v6
       with:
-        go-version: '1.25'
-        cache: false
-    - working-directory: kubernetes
+        python-version: '3.10'
+    - uses: astral-sh/setup-uv@v7
+    - run: docker build -f components/egress/Dockerfile -t opensandbox/egress:local .
+    - working-directory: server
       env:
-        OPEN_SANDBOX_E2E_HOST_COPY: 'true'
-        KIND_CLUSTER: osb-host-copy
-      run: "mkdir -p /tmp/opensandbox-host-copy\ncat <<'CONFIG' | kind create cluster --name \"$KIND_CLUSTER\" --image kindest/node:v1.28.6 --config -\nkind: Cluster\napiVersion: kind.x-k8s.io/v1alpha4\nnodes:\n- role: control-plane\n  extraMounts:\n\
-        \  - hostPath: /tmp/opensandbox-host-copy\n    containerPath: /mnt/opensandbox-host-copy\nCONFIG\nmake test-e2e-core KIND=kind GINKGO_ARGS='-ginkgo.focus=should.copy.files.between.a.host-mounted.directory'\n"
-  kind-task-executor:
-    name: Task-executor / Kind E2E
+        OPENSANDBOX_TEST_DOCKER: '1'
+        OPENSANDBOX_TEST_EGRESS_IMAGE: opensandbox/egress:local
+        UV_PYTHON: '3.10'
+      run: uv sync --all-groups --frozen && uv run pytest -v -ra tests/test_docker_delete_integration.py
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - revision: candidate
+          sha: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+        - revision: baseline
+          sha: f26a716a11238b88d13a56242104e93e9d01c37d
+  kind-direct-retry:
+    name: Kind direct / dependency download retry
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-    - uses: actions/checkout@v6
-      with:
-        ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
-        persist-credentials: false
-    - name: Reserve runner space for local builds
-      if: runner.os == 'Linux'
-      shell: bash
-      run: df -h /; sudo rm -rf /usr/local/lib/android /usr/share/swift /usr/local/.ghcup /opt/ghc; df -h /
-    - *id001
-    - working-directory: kubernetes
-      env:
-        KIND_CLUSTER: osb-task-executor
-        CONTROLLER_IMG: controller:dev
-        TASK_EXECUTOR_IMG: task-executor:dev
-      run: make setup-test-e2e KIND=kind KIND_K8S_VERSION=v1.28.6 && go test ./test/e2e_task/ -count=1 -v -ginkgo.v -timeout 60m
-  helm-deployed:
-    name: Helm / deployment smoke of the existing public release
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - variant: direct
+          script: scripts/python-k8s-e2e.sh
+          e2e_gateway_route_mode: ''
+          execd_run_as_init: 'false'
     env:
-      KIND_NODE_IMAGE: kindest/node:v1.30.13@sha256:8673291894dc400e0fb4f57243f5fdc6e355ceaa765505e0e73941aa1b6e0b80
-      HELM_SMOKE_ARTIFACTS_DIR: /tmp/helm-smoke-diagnostics
-      SANDBOX_TEST_IMAGE: ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+      KIND_CLUSTER: opensandbox-e2e
+      KIND_K8S_VERSION: v1.30.4
+      KUBECONFIG_PATH: /tmp/opensandbox-kind-kubeconfig
+      KUBECONFIG: /tmp/opensandbox-kind-kubeconfig
+      OPENSANDBOX_E2E_SANDBOX_CPU: 250m
+      OPENSANDBOX_E2E_SANDBOX_MEMORY: 512Mi
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
       with:
-        persist-credentials: false
         ref: bfd4a6aba4d171afd5f53d8c13d515a0c966a7a4
+        persist-credentials: false
     - name: Reserve runner space for local builds
       if: runner.os == 'Linux'
       shell: bash
@@ -223,37 +120,47 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version: 1.25.0
+        cache-dependency-path: kubernetes/go.sum
+    - name: Add Go bin to PATH
+      run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
     - name: Set up uv
       uses: astral-sh/setup-uv@v7
       with:
-        version: 0.7.6
+        version: latest
     - name: Set up kubectl
       uses: azure/setup-kubectl@v4
-      with:
-        version: v1.30.13
     - name: Set up Helm
       uses: azure/setup-helm@v4
-      with:
-        version: v3.21.3
-    - name: Install Kind
-      run: 'go install sigs.k8s.io/kind@v0.31.0
+    - name: Run Kubernetes runtime E2E
+      env:
+        E2E_GATEWAY_ROUTE_MODE: ${{ matrix.e2e_gateway_route_mode }}
+        E2E_EXECD_RUN_AS_INIT: ${{ matrix.execd_run_as_init }}
+      run: bash "./${{ matrix.script }}"
+    - name: Dump kind diagnostics
+      if: always()
+      run: 'kubectl get pods -A -o wide || true
 
-        echo "$(go env GOPATH)/bin" >>"$GITHUB_PATH"
+        kubectl get batchsandboxes -A || true
+
+        kubectl get pv,pvc -A || true
+
+        kubectl describe deployment -n opensandbox-system opensandbox-controller-manager || true
+
+        kubectl describe deployment -n opensandbox-system opensandbox-server || true
+
+        kubectl get svc -n opensandbox-system opensandbox-server || true
 
         '
-    - name: Package umbrella release candidate once
-      id: package
-      run: "set -euo pipefail\nchart_path=\"manifests/charts/opensandbox\"\nchart_version=\"$(awk '$1 == \"version:\" {gsub(/\"/, \"\", $2); print $2; exit}' \"$chart_path/Chart.yaml\")\"\napp_version=\"$(awk '$1 == \"appVersion:\" {gsub(/\"\
-        /, \"\", $2); print $2; exit}' \"$chart_path/Chart.yaml\")\"\npackage_name=\"opensandbox-${chart_version}.tgz\"\n\nhelm dependency build \"$chart_path\"\nhelm lint \"$chart_path\"\nmkdir -p dist\nhelm package \"$chart_path\" --destination\
-        \ dist\nmanifests/release/verify-helm-package.sh \\\n  \"dist/$package_name\" opensandbox \"$chart_version\" \"$app_version\"\npackage_sha256=\"$(sha256sum \"dist/$package_name\" | awk '{print $1}')\"\nprintf '%s  %s\\n' \"$package_sha256\"\
-        \ \"$package_name\" >dist/SHA256SUMS\necho \"package_name=$package_name\" >>\"$GITHUB_OUTPUT\"\n"
-    - name: Verify single-active Server defaults
-      env:
-        PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
-      run: "set -euo pipefail\n\nhelm template opensandbox-server manifests/charts/server \\\n  --show-only templates/deployment.yaml >/tmp/opensandbox-server-rendered.yaml\ngrep -qx '  replicas: 1' /tmp/opensandbox-server-rendered.yaml\ngrep\
-        \ -qx '    type: Recreate' /tmp/opensandbox-server-rendered.yaml\n\nhelm template opensandbox \"dist/$PACKAGE_NAME\" \\\n  --show-only charts/opensandbox-server/templates/deployment.yaml \\\n  >/tmp/opensandbox-umbrella-server-rendered.yaml\n\
-        grep -qx '  replicas: 1' /tmp/opensandbox-umbrella-server-rendered.yaml\ngrep -qx '    type: Recreate' /tmp/opensandbox-umbrella-server-rendered.yaml\n"
-    - name: Run exact-package Kind smoke
-      env:
-        PACKAGE_NAME: ${{ steps.package.outputs.package_name }}
-      run: "manifests/release/smoke-helm-release.sh \\\n  --package \"dist/$PACKAGE_NAME\" -- manifests/release/run-helm-release-e2e.sh\n"
+    - name: Eval in-cluster server logs
+      if: always()
+      run: 'kubectl logs -n opensandbox-system deployment/opensandbox-server || true
+
+        cat /tmp/opensandbox-server-port-forward.log || true
+
+        '
+    - name: Clean up Kind cluster
+      if: always()
+      run: 'kind delete cluster --name "${KIND_CLUSTER}" || true
+
+        '
+    timeout-minutes: 90
